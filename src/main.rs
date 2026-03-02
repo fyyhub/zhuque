@@ -9,7 +9,7 @@ use anyhow::Result;
 use api::AppState;
 use models::db::init_db;
 use scheduler::Scheduler;
-use services::{AuthService, ConfigService, DependenceService, EnvService, Executor, LogService, ScriptService, SubscriptionService, TaskService, TaskGroupService};
+use services::{AuthService, ConfigService, DependenceService, EnvService, Executor, LogService, ScriptService, SubscriptionService, TaskService, TaskGroupService, TerminalService};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
@@ -52,6 +52,7 @@ async fn main() -> Result<()> {
     let subscription_service = Arc::new(SubscriptionService::new(shared_pool.clone(), scripts_dir.clone()));
     let config_service = Arc::new(ConfigService::new(shared_pool.clone()));
     let auth_service = Arc::new(AuthService::new()?);
+    let terminal_service = Arc::new(TerminalService::new(scripts_dir.clone()));
     let executor = Arc::new(Executor::new(env_service.clone(), config_service.clone()));
 
     script_service.init().await?;
@@ -105,6 +106,7 @@ async fn main() -> Result<()> {
         subscription_service,
         config_service,
         auth_service,
+        terminal_service,
         scheduler,
         db_pool: shared_pool,
     });

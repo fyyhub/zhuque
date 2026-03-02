@@ -8,6 +8,7 @@ pub mod script;
 pub mod subscription;
 pub mod task;
 pub mod task_group;
+pub mod terminal;
 
 pub use auth::AuthService;
 pub use config::ConfigService;
@@ -19,3 +20,4 @@ pub use script::ScriptService;
 pub use subscription::SubscriptionService;
 pub use task::TaskService;
 pub use task_group::TaskGroupService;
+pub use terminal::TerminalService;

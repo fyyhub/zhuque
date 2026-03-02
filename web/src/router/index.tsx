@@ -9,6 +9,7 @@ import Dependences from '@/pages/Dependences';
 import Subscriptions from '@/pages/Subscriptions';
 import Logs from '@/pages/Logs';
 import Config from '@/pages/Config';
+import Terminal from '@/pages/Terminal';
 
 const router = createBrowserRouter([
   {
@@ -50,6 +51,10 @@ const router = createBrowserRouter([
       {
         path: 'config',
         element: <Config />,
+      },
+      {
+        path: 'terminal',
+        element: <Terminal />,
       },
     ],
   },

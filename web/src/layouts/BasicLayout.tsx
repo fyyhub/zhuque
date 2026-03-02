@@ -20,6 +20,7 @@ import {
   IconMenuFold,
   IconMenuUnfold,
   IconPoweroff,
+  IconCode,
 } from '@arco-design/web-react/icon';
 import { useUserStore } from '@/stores/user';
 import './BasicLayout.css';
@@ -41,6 +42,7 @@ const BasicLayout: React.FC = () => {
     { key: '/dependences', icon: <IconApps />, label: '依赖管理' },
     { key: '/subscriptions', icon: <IconSync />, label: '订阅管理' },
     { key: '/logs', icon: <IconHistory />, label: '执行日志' },
+    { key: '/terminal', icon: <IconCode />, label: '终端' },
     { key: '/config', icon: <IconStorage />, label: '系统配置' },
   ];
 

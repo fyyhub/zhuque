@@ -9,10 +9,11 @@ pub mod subscription;
 pub mod system;
 pub mod task;
 pub mod task_group;
+pub mod terminal;
 
 use crate::middleware::{auth_middleware, webhook_auth_middleware};
 use crate::scheduler::Scheduler;
-use crate::services::{AuthService, ConfigService, DependenceService, EnvService, LogService, ScriptService, SubscriptionService, TaskService, TaskGroupService};
+use crate::services::{AuthService, ConfigService, DependenceService, EnvService, LogService, ScriptService, SubscriptionService, TaskService, TaskGroupService, TerminalService};
 use axum::{
     http::{StatusCode, Uri},
     middleware,
@@ -37,6 +38,7 @@ pub struct AppState {
     pub subscription_service: Arc<SubscriptionService>,
     pub config_service: Arc<ConfigService>,
     pub auth_service: Arc<AuthService>,
+    pub terminal_service: Arc<TerminalService>,
     pub scheduler: Arc<Scheduler>,
     pub db_pool: Arc<RwLock<SqlitePool>>,
 }
@@ -237,6 +239,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // 系统信息
         .route("/api/system/info", get(system::get_system_info))
         .route("/api/system/webhook-config", get(system::get_webhook_config))
+        // 终端
+        .route("/api/terminal/connect", get(terminal::connect_terminal))
         .layer(middleware::from_fn_with_state(
             state.auth_service.clone(),
             auth_middleware,
