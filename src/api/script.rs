@@ -98,7 +98,10 @@ pub async fn upload_script(
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|_| StatusCode::BAD_REQUEST)?
+        .map_err(|e| {
+            tracing::error!("Failed to get next field: {:?}", e);
+            StatusCode::BAD_REQUEST
+        })?
     {
         let field_name = field.name().map(|s| s.to_string());
 
@@ -108,7 +111,10 @@ pub async fn upload_script(
                 field
                     .text()
                     .await
-                    .map_err(|_| StatusCode::BAD_REQUEST)?,
+                    .map_err(|e| {
+                        tracing::error!("Failed to read path field: {:?}", e);
+                        StatusCode::BAD_REQUEST
+                    })?,
             );
             continue;
         }
@@ -117,31 +123,44 @@ pub async fn upload_script(
         let file_name = field
             .file_name()
             .map(|s| s.to_string())
-            .ok_or(StatusCode::BAD_REQUEST)?;
+            .ok_or_else(|| {
+                tracing::error!("No file name in upload");
+                StatusCode::BAD_REQUEST
+            })?;
+
+        tracing::info!("Uploading file: {}", file_name);
 
         let content = field
             .text()
             .await
-            .map_err(|_| StatusCode::BAD_REQUEST)?;
+            .map_err(|e| {
+                tracing::error!("Failed to read file content: {:?}", e);
+                StatusCode::BAD_REQUEST
+            })?;
 
         // 确定最终路径
         let final_path = if let Some(ref path) = target_path {
             // 如果指定了路径，使用指定路径
-            if path.ends_with('/') {
+            if path.is_empty() || path.ends_with('/') {
                 format!("{}{}", path, file_name)
             } else {
-                path.clone()
+                format!("{}/{}", path, file_name)
             }
         } else {
             // 否则直接使用文件名
             file_name
         };
 
+        tracing::info!("Writing to path: {}", final_path);
+
         state
             .script_service
             .write(&final_path, &content)
             .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            .map_err(|e| {
+                tracing::error!("Failed to write file: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
     }
 
     Ok(StatusCode::CREATED)
