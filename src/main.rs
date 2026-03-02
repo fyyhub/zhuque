@@ -8,7 +8,7 @@ mod utils;
 use anyhow::Result;
 use api::AppState;
 use models::db::init_db;
-use scheduler::Scheduler;
+use scheduler::{Scheduler, SubscriptionScheduler};
 use services::{AuthService, ConfigService, DependenceService, EnvService, Executor, LogService, ScriptService, SubscriptionService, TaskService, TaskGroupService, TerminalService, TotpService};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -75,6 +75,11 @@ async fn main() -> Result<()> {
     let scheduler = Arc::new(Scheduler::new(task_service.clone(), log_service.clone(), executor.clone()).await?);
     scheduler.start().await?;
 
+    // 初始化订阅调度器
+    info!("Initializing subscription scheduler...");
+    let subscription_scheduler = Arc::new(SubscriptionScheduler::new(subscription_service.clone()).await?);
+    subscription_scheduler.start().await?;
+
     // 启动日志清理定时任务
     info!("Starting log cleanup task...");
     let log_service_cleanup = log_service.clone();
@@ -112,6 +117,7 @@ async fn main() -> Result<()> {
         terminal_service,
         totp_service,
         scheduler,
+        subscription_scheduler,
         db_pool: shared_pool,
     });
 

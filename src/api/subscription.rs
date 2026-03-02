@@ -49,6 +49,11 @@ pub async fn create_subscription(
             )
         })?;
 
+    // 刷新订阅调度器
+    if let Err(e) = state.subscription_scheduler.reload_subscriptions().await {
+        tracing::error!("Failed to reload subscription scheduler: {}", e);
+    }
+
     Ok((StatusCode::CREATED, Json(sub)))
 }
 
@@ -64,6 +69,11 @@ pub async fn update_subscription(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
+    // 刷新订阅调度器
+    if let Err(e) = state.subscription_scheduler.reload_subscriptions().await {
+        tracing::error!("Failed to reload subscription scheduler: {}", e);
+    }
+
     Ok(Json(sub))
 }
 
@@ -78,6 +88,10 @@ pub async fn delete_subscription(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if deleted {
+        // 刷新订阅调度器
+        if let Err(e) = state.subscription_scheduler.reload_subscriptions().await {
+            tracing::error!("Failed to reload subscription scheduler: {}", e);
+        }
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err(StatusCode::NOT_FOUND)

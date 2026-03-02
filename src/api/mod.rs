@@ -12,7 +12,7 @@ pub mod task_group;
 pub mod terminal;
 
 use crate::middleware::{auth_middleware, webhook_auth_middleware};
-use crate::scheduler::Scheduler;
+use crate::scheduler::{Scheduler, SubscriptionScheduler};
 use crate::services::{AuthService, ConfigService, DependenceService, EnvService, LogService, ScriptService, SubscriptionService, TaskService, TaskGroupService, TerminalService, TotpService};
 use axum::{
     http::{StatusCode, Uri},
@@ -41,6 +41,7 @@ pub struct AppState {
     pub terminal_service: Arc<TerminalService>,
     pub totp_service: Arc<TotpService>,
     pub scheduler: Arc<Scheduler>,
+    pub subscription_scheduler: Arc<SubscriptionScheduler>,
     pub db_pool: Arc<RwLock<SqlitePool>>,
 }
 

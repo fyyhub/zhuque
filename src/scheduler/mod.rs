@@ -1,3 +1,7 @@
+mod subscription_scheduler;
+
+pub use subscription_scheduler::SubscriptionScheduler;
+
 use crate::services::{Executor, LogService, TaskService};
 use anyhow::Result;
 use std::str::FromStr;
