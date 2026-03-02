@@ -1,0 +1,198 @@
+import React, { useEffect, useState } from 'react';
+import {
+  Card,
+  Table,
+  Button,
+  Space,
+  Modal,
+  Form,
+  Input,
+  Message,
+  Popconfirm,
+  Switch,
+} from '@arco-design/web-react';
+import { IconPlus, IconEdit, IconDelete } from '@arco-design/web-react/icon';
+import { envApi } from '@/api/env';
+import type { EnvVar } from '@/types';
+
+const FormItem = Form.Item;
+
+const Env: React.FC = () => {
+  const [envVars, setEnvVars] = useState<EnvVar[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [visible, setVisible] = useState(false);
+  const [editingEnv, setEditingEnv] = useState<EnvVar | null>(null);
+  const [form] = Form.useForm();
+
+  useEffect(() => {
+    loadEnvVars();
+  }, []);
+
+  const loadEnvVars = async () => {
+    setLoading(true);
+    try {
+      const res: any = await envApi.list();
+      setEnvVars(res);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAdd = () => {
+    setEditingEnv(null);
+    form.resetFields();
+    setVisible(true);
+  };
+
+  const handleEdit = (env: EnvVar) => {
+    setEditingEnv(env);
+    form.setFieldsValue(env);
+    setVisible(true);
+  };
+
+  const handleSubmit = async () => {
+    try {
+      const values = await form.validate();
+
+      if (editingEnv) {
+        await envApi.update(editingEnv.id, values);
+        Message.success('更新成功');
+      } else {
+        await envApi.create(values);
+        Message.success('创建成功');
+      }
+      setVisible(false);
+      loadEnvVars();
+    } catch (error: any) {
+      Message.error(error.response?.data?.error || '操作失败');
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    try {
+      await envApi.delete(id);
+      Message.success('删除成功');
+      loadEnvVars();
+    } catch (error: any) {
+      Message.error(error.response?.data?.error || '删除失败');
+    }
+  };
+
+  const columns = [
+    {
+      title: '变量名',
+      dataIndex: 'key',
+      width: 200,
+      render: (key: string) => (
+        <span style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>{key}</span>
+      ),
+    },
+    {
+      title: '变量值',
+      dataIndex: 'value',
+      width: 300,
+      ellipsis: true,
+      render: (value: string) => (
+        <span style={{ fontFamily: 'monospace', fontSize: '12px' }}>{value}</span>
+      ),
+    },
+    {
+      title: '描述',
+      dataIndex: 'remark',
+      ellipsis: true,
+    },
+    {
+      title: '状态',
+      dataIndex: 'enabled',
+      width: 100,
+      render: (enabled: boolean, record: EnvVar) => (
+        <Switch
+          checked={enabled}
+          onChange={async (checked) => {
+            try {
+              await envApi.update(record.id, { enabled: checked });
+              Message.success(checked ? '已启用' : '已禁用');
+              loadEnvVars();
+            } catch (error: any) {
+              Message.error(error.response?.data?.error || '操作失败');
+            }
+          }}
+        />
+      ),
+    },
+    {
+      title: '创建时间',
+      dataIndex: 'created_at',
+      width: 180,
+      render: (time: string) => new Date(time).toLocaleString('zh-CN'),
+    },
+    {
+      title: '操作',
+      width: 150,
+      fixed: 'right' as const,
+      render: (_: any, record: EnvVar) => (
+        <Space>
+          <Button
+            type="text"
+            size="small"
+            icon={<IconEdit />}
+            onClick={() => handleEdit(record)}
+          >
+            编辑
+          </Button>
+          <Popconfirm
+            title="确定删除此环境变量吗？"
+            onOk={() => handleDelete(record.id)}
+          >
+            <Button type="text" size="small" status="danger" icon={<IconDelete />}>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
+
+  return (
+    <Card
+      title="环境变量"
+      extra={
+        <Button type="primary" icon={<IconPlus />} onClick={handleAdd}>
+          新建变量
+        </Button>
+      }
+    >
+      <Table
+        columns={columns}
+        data={envVars}
+        loading={loading}
+        pagination={{ pageSize: 10 }}
+        scroll={{ x: 1200 }}
+        rowKey="id"
+      />
+
+      <Modal
+        title={editingEnv ? '编辑环境变量' : '新建环境变量'}
+        visible={visible}
+        onOk={handleSubmit}
+        onCancel={() => setVisible(false)}
+        autoFocus={false}
+        style={{ width: '90%', maxWidth: 600 }}
+      >
+        <Form form={form} layout="vertical">
+          <FormItem label="变量名" field="key" rules={[{ required: true, message: '请输入变量名' }]}>
+            <Input placeholder="例如: API_KEY" />
+          </FormItem>
+          <FormItem label="变量值" field="value" rules={[{ required: true, message: '请输入变量值' }]}>
+            <Input.TextArea placeholder="变量值" rows={3} />
+          </FormItem>
+          <FormItem label="描述" field="remark">
+            <Input placeholder="变量描述" />
+          </FormItem>
+        </Form>
+      </Modal>
+    </Card>
+  );
+};
+
+export default Env;

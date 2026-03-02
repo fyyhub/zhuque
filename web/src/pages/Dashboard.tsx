@@ -1,0 +1,205 @@
+import React, { useEffect, useState } from 'react';
+import { Grid, Card, Statistic, Table, Space, Tag, Button, Progress } from '@arco-design/web-react';
+import { IconClockCircle, IconCheckCircle, IconCloseCircle } from '@arco-design/web-react/icon';
+import { taskApi } from '@/api/task';
+import { logApi } from '@/api/log';
+import axios from 'axios';
+import type { Task, Log } from '@/types';
+import './Dashboard.css';
+
+const { Row, Col } = Grid;
+
+interface SystemInfo {
+  cpu_usage: number;
+  memory_total: number;
+  memory_used: number;
+  memory_available: number;
+  memory_usage_percent: number;
+}
+
+const Dashboard: React.FC = () => {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [logs, setLogs] = useState<Log[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
+
+  useEffect(() => {
+    loadData();
+    loadSystemInfo();
+    const interval = setInterval(loadSystemInfo, 5000); // 每5秒更新一次
+    return () => clearInterval(interval);
+  }, []);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [tasksRes, logsRes]: any = await Promise.all([
+        taskApi.list(),
+        logApi.list(undefined, 1, 10),
+      ]);
+      setTasks(tasksRes);
+      setLogs(logsRes.data);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadSystemInfo = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get('/api/system/info', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setSystemInfo(res.data);
+    } catch (error) {
+      console.error('Failed to load system info:', error);
+    }
+  };
+
+  const formatBytes = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const stats = {
+    total: tasks.length,
+    enabled: tasks.filter((t) => t.enabled).length,
+    disabled: tasks.filter((t) => !t.enabled).length,
+  };
+
+  const columns = [
+    {
+      title: '任务名称',
+      dataIndex: 'task_id',
+      render: (_: any, record: Log) => {
+        const task = tasks.find((t) => t.id === record.task_id);
+        return task?.name || '-';
+      },
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      render: (status: string) => (
+        <Tag color={status === 'success' ? 'green' : 'red'}>
+          {status === 'success' ? '成功' : '失败'}
+        </Tag>
+      ),
+    },
+    {
+      title: '执行时间',
+      dataIndex: 'created_at',
+    },
+  ];
+
+  return (
+    <div className="dashboard">
+      <Row gutter={[16, 16]}>
+        <Col xs={24} sm={12} md={12} lg={6} xl={6}>
+          <Card>
+            <Statistic
+              title="总任务数"
+              value={stats.total}
+              prefix={<IconClockCircle />}
+              styleValue={{ color: '#165DFF' }}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} md={12} lg={6} xl={6}>
+          <Card>
+            <Statistic
+              title="已启用"
+              value={stats.enabled}
+              prefix={<IconCheckCircle />}
+              styleValue={{ color: '#00B42A' }}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} md={12} lg={6} xl={6}>
+          <Card>
+            <Statistic
+              title="已禁用"
+              value={stats.disabled}
+              prefix={<IconCloseCircle />}
+              styleValue={{ color: '#F53F3F' }}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} md={12} lg={6} xl={6}>
+          <Card>
+            <Statistic
+              title="CPU使用率"
+              value={systemInfo ? systemInfo.cpu_usage.toFixed(1) : '-'}
+              suffix="%"
+              styleValue={{ color: systemInfo && systemInfo.cpu_usage > 80 ? '#F53F3F' : '#165DFF' }}
+            />
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24} sm={24} md={24} lg={12} xl={12}>
+          <Card title="内存使用情况">
+            {systemInfo && (
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <div>
+                  <div style={{ marginBottom: 8 }}>
+                    <span>已使用: {formatBytes(systemInfo.memory_used)} / {formatBytes(systemInfo.memory_total)}</span>
+                    <span style={{ float: 'right' }}>{systemInfo.memory_usage_percent.toFixed(1)}%</span>
+                  </div>
+                  <Progress
+                    percent={systemInfo.memory_usage_percent}
+                    status={systemInfo.memory_usage_percent > 80 ? 'error' : 'normal'}
+                  />
+                </div>
+                <div style={{ fontSize: '14px', color: 'var(--color-text-3)' }}>
+                  可用: {formatBytes(systemInfo.memory_available)}
+                </div>
+              </Space>
+            )}
+          </Card>
+        </Col>
+        <Col xs={24} sm={24} md={24} lg={12} xl={12}>
+          <Card title="CPU使用情况">
+            {systemInfo && (
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <div>
+                  <div style={{ marginBottom: 8 }}>
+                    <span>CPU使用率</span>
+                    <span style={{ float: 'right' }}>{systemInfo.cpu_usage.toFixed(1)}%</span>
+                  </div>
+                  <Progress
+                    percent={systemInfo.cpu_usage}
+                    status={systemInfo.cpu_usage > 80 ? 'error' : 'normal'}
+                  />
+                </div>
+              </Space>
+            )}
+          </Card>
+        </Col>
+      </Row>
+
+      <Card
+        title="最近执行日志"
+        style={{ marginTop: 16 }}
+        extra={
+          <Button type="text" onClick={loadData}>
+            刷新
+          </Button>
+        }
+      >
+        <Table
+          columns={columns}
+          data={logs}
+          loading={loading}
+          pagination={false}
+          scroll={{ x: true }}
+        />
+      </Card>
+    </div>
+  );
+};
+
+export default Dashboard;
