@@ -72,8 +72,6 @@ const Scripts: React.FC = () => {
   const [form] = Form.useForm();
   const [folderForm] = Form.useForm();
   const [renameForm] = Form.useForm();
-  const [copyForm] = Form.useForm();
-  const [moveForm] = Form.useForm();
 
   useEffect(() => {
     loadFiles();
@@ -1186,7 +1184,6 @@ const Scripts: React.FC = () => {
                   setSelectedTreeNode(keys[0] as string);
                 }
               }}
-              defaultExpandAll
             />
           </div>
           <div style={{ marginTop: 8, fontSize: 12, color: 'var(--color-text-3)' }}>
@@ -1234,7 +1231,6 @@ const Scripts: React.FC = () => {
                   setSelectedTreeNode(keys[0] as string);
                 }
               }}
-              defaultExpandAll
             />
           </div>
           <div style={{ marginTop: 8, fontSize: 12, color: 'var(--color-text-3)' }}>
