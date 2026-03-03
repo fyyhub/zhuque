@@ -110,15 +110,9 @@ impl DependenceService {
                     error!("Failed to install dependency: {}", e);
                 }
 
-                // 每个依赖安装完后立即清理内存
-                aggressive_memory_reclaim();
-
                 // permit自动释放，继续下一个
             }
             info!("All startup dependencies processed");
-
-            // 所有依赖安装完成后，再做一次全局清理
-            aggressive_memory_reclaim();
 
             let _ = tx.send(()); // 通知安装完成
         });
@@ -390,9 +384,6 @@ impl DependenceService {
                 .await?;
             }
         }
-
-        // 激进的内存回收
-        aggressive_memory_reclaim();
 
         Ok(())
     }

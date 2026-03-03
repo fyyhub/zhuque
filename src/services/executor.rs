@@ -1,6 +1,5 @@
 use crate::models::Task;
 use crate::services::{EnvService, ConfigService};
-use crate::services::dependence::aggressive_memory_reclaim;
 use crate::utils::python_detector::PYTHON_CMD;
 use anyhow::{anyhow, Result};
 use serde::Serialize;
@@ -467,9 +466,6 @@ impl Executor {
         } else {
             error!("Task {} failed", task.name);
         }
-
-        // 脚本执行完成后，激进回收内存
-        aggressive_memory_reclaim();
 
         Ok((execution_id, output, overall_success))
     }
