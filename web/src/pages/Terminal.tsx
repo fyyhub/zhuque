@@ -90,8 +90,34 @@ const Terminal: React.FC = () => {
       }, 100);
     };
 
-    ws.onmessage = (event) => {
-      term.write(event.data);
+    ws.onmessage = async (event) => {
+      // 处理文本消息（可能是 session 初始化消息）
+      if (typeof event.data === 'string') {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'session') {
+            // 忽略 session 消息，不显示在终端
+            console.log('Terminal session ID:', data.id);
+            return;
+          }
+        } catch (e) {
+          // 不是 JSON 格式，作为普通文本输出
+          term.write(event.data);
+          return;
+        }
+      }
+
+      // 处理二进制消息（PTY 输出）
+      if (event.data instanceof Blob) {
+        const text = await event.data.text();
+        term.write(text);
+      } else if (event.data instanceof ArrayBuffer) {
+        const text = new TextDecoder().decode(event.data);
+        term.write(text);
+      } else {
+        // 其他类型直接写入
+        term.write(event.data);
+      }
     };
 
     ws.onerror = (error) => {
