@@ -288,8 +288,8 @@ const Scripts: React.FC = () => {
     }
   };
 
-  // 递归构建文件树
-  const buildTreeData = async (path: string = ''): Promise<any[]> => {
+  // 加载指定路径下的直接子目录
+  const loadTreeChildren = async (path: string = ''): Promise<any[]> => {
     try {
       const token = localStorage.getItem('token');
       const res = await axios.get('/api/scripts', {
@@ -304,22 +304,54 @@ const Scripts: React.FC = () => {
           isDirectory: file.is_directory,
         }));
 
-      const treeNodes = await Promise.all(
-        items
-          .filter((item) => item.isDirectory)
-          .map(async (item) => ({
-            key: item.path,
-            title: item.name,
-            icon: <IconFolder />,
-            children: await buildTreeData(item.path),
-          }))
-      );
+      const treeNodes = items
+        .filter((item) => item.isDirectory)
+        .map((item) => ({
+          key: item.path,
+          title: item.name,
+          icon: <IconFolder />,
+          children: [], // 空数组表示有子节点但未加载
+        }));
 
       return treeNodes;
     } catch (error) {
       console.error('加载目录树失败', error);
       return [];
     }
+  };
+
+  // 动态加载树节点
+  const onLoadData = (treeNode: any) => {
+    return new Promise<void>(async (resolve) => {
+      if (treeNode.children && treeNode.children.length > 0) {
+        resolve();
+        return;
+      }
+
+      const children = await loadTreeChildren(treeNode.key);
+
+      // 更新树数据
+      const updateTreeData = (list: any[]): any[] => {
+        return list.map((node) => {
+          if (node.key === treeNode.key) {
+            return {
+              ...node,
+              children,
+            };
+          }
+          if (node.children) {
+            return {
+              ...node,
+              children: updateTreeData(node.children),
+            };
+          }
+          return node;
+        });
+      };
+
+      setTreeData(updateTreeData(treeData));
+      resolve();
+    });
   };
 
   const handleCopy = async (file: ScriptFile) => {
@@ -331,14 +363,14 @@ const Scripts: React.FC = () => {
     setTargetFileName(defaultName);
     setSelectedTreeNode('');
 
-    // 加载文件树
-    const tree = await buildTreeData();
+    // 只加载根目录的直接子目录
+    const rootChildren = await loadTreeChildren();
     setTreeData([
       {
         key: '',
         title: '根目录',
         icon: <IconFolder />,
-        children: tree,
+        children: rootChildren,
       },
     ]);
 
@@ -382,14 +414,14 @@ const Scripts: React.FC = () => {
     setTargetFileName(file.name);
     setSelectedTreeNode('');
 
-    // 加载文件树
-    const tree = await buildTreeData();
+    // 只加载根目录的直接子目录
+    const rootChildren = await loadTreeChildren();
     setTreeData([
       {
         key: '',
         title: '根目录',
         icon: <IconFolder />,
-        children: tree,
+        children: rootChildren,
       },
     ]);
 
@@ -1184,6 +1216,7 @@ const Scripts: React.FC = () => {
                   setSelectedTreeNode(keys[0] as string);
                 }
               }}
+              loadMore={onLoadData}
             />
           </div>
           <div style={{ marginTop: 8, fontSize: 12, color: 'var(--color-text-3)' }}>
@@ -1231,6 +1264,7 @@ const Scripts: React.FC = () => {
                   setSelectedTreeNode(keys[0] as string);
                 }
               }}
+              loadMore={onLoadData}
             />
           </div>
           <div style={{ marginTop: 8, fontSize: 12, color: 'var(--color-text-3)' }}>
