@@ -91,6 +91,20 @@ const Terminal: React.FC = () => {
     };
 
     ws.onmessage = (event) => {
+      // 区分消息类型：会话初始化消息（文本）vs PTY输出（二进制或文本）
+      if (typeof event.data === 'string') {
+        try {
+          const msg = JSON.parse(event.data);
+          // 过滤掉会话初始化消息
+          if (msg.type === 'session') {
+            console.log('Terminal session created:', msg.id);
+            return;
+          }
+        } catch {
+          // 不是JSON，可能是文本格式的PTY输出，直接写入
+        }
+      }
+      // 写入实际的终端输出
       term.write(event.data);
     };
 

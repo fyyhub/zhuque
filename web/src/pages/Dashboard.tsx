@@ -74,6 +74,8 @@ const Dashboard: React.FC = () => {
     {
       title: '任务名称',
       dataIndex: 'task_id',
+      width: 150,
+      ellipsis: true,
       render: (_: any, record: Log) => {
         const task = tasks.find((t) => t.id === record.task_id);
         return task?.name || '-';
@@ -82,6 +84,7 @@ const Dashboard: React.FC = () => {
     {
       title: '状态',
       dataIndex: 'status',
+      width: 80,
       render: (status: string) => (
         <Tag color={status === 'success' ? 'green' : 'red'}>
           {status === 'success' ? '成功' : '失败'}
@@ -91,11 +94,13 @@ const Dashboard: React.FC = () => {
     {
       title: '执行时间',
       dataIndex: 'created_at',
+      width: 160,
       render: (time: string) => new Date(time).toLocaleString('zh-CN'),
     },
     {
       title: '耗时',
       dataIndex: 'duration',
+      width: 120,
       render: (duration: number | undefined) => {
         if (!duration) return '-';
         return `${duration}ms (${(duration / 1000).toFixed(2)}s)`;

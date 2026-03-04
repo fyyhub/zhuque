@@ -51,15 +51,26 @@ pub async fn create_backup(
     State(_state): State<Arc<AppState>>,
 ) -> Result<impl IntoResponse, StatusCode> {
     let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".into());
-    let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
     let backup_filename = format!("zhuque_backup_{}.tar.gz", timestamp);
 
     info!("Creating backup from: {}", data_dir);
 
-    // 在内存中创建 tar.gz
-    let mut tar_gz_data = Vec::new();
+    // 获取父目录路径，用于存放备份文件
+    let parent_dir = std::path::Path::new(&data_dir)
+        .parent()
+        .and_then(|p| p.to_str())
+        .unwrap_or(".");
+    let backup_path = format!("{}/{}", parent_dir, backup_filename);
+
+    // 创建备份文件
+    let backup_file = std::fs::File::create(&backup_path).map_err(|e| {
+        error!("Failed to create backup file: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
     {
-        let encoder = GzEncoder::new(&mut tar_gz_data, Compression::default());
+        let encoder = GzEncoder::new(backup_file, Compression::default());
         let mut tar = Builder::new(encoder);
 
         // 递归添加 data 目录下的所有文件
@@ -77,7 +88,16 @@ pub async fn create_backup(
         })?;
     }
 
-    info!("Backup created successfully: {} bytes", tar_gz_data.len());
+    // 读取备份文件
+    let backup_data = fs::read(&backup_path).await.map_err(|e| {
+        error!("Failed to read backup file: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    info!("Backup created successfully: {} bytes", backup_data.len());
+
+    // 删除临时备份文件
+    let _ = fs::remove_file(&backup_path).await;
 
     // 返回文件下载响应
     let content_disposition = format!("attachment; filename=\"{}\"", backup_filename);
@@ -87,7 +107,7 @@ pub async fn create_backup(
             (header::CONTENT_TYPE, "application/gzip".to_string()),
             (header::CONTENT_DISPOSITION, content_disposition),
         ],
-        Body::from(tar_gz_data),
+        Body::from(backup_data),
     ))
 }
 
@@ -96,13 +116,21 @@ pub async fn restore_backup(
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, StatusCode> {
     let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".into());
-    let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
 
     info!("Starting restore process");
 
-    let mut backup_data = Vec::new();
+    // 获取父目录路径
+    let parent_dir = std::path::Path::new(&data_dir)
+        .parent()
+        .and_then(|p| p.to_str())
+        .unwrap_or(".");
 
-    // 接收上传的文件
+    // 保存上传的备份文件到临时位置
+    let uploaded_backup_path = format!("{}/zhuque_uploaded_{}.tar.gz", parent_dir, timestamp);
+    let mut file_received = false;
+
+    // 接收上传的文件并直接写入磁盘
     while let Some(field) = multipart.next_field().await.map_err(|e| {
         error!("Failed to read multipart field: {}", e);
         StatusCode::BAD_REQUEST
@@ -110,50 +138,49 @@ pub async fn restore_backup(
         let name = field.name().unwrap_or("");
 
         if name == "file" {
-            backup_data = field.bytes().await.map_err(|e| {
+            let data = field.bytes().await.map_err(|e| {
                 error!("Failed to read file data: {}", e);
                 StatusCode::BAD_REQUEST
-            })?.to_vec();
+            })?;
 
-            info!("Received backup file: {} bytes", backup_data.len());
+            fs::write(&uploaded_backup_path, &data).await.map_err(|e| {
+                error!("Failed to write uploaded file: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+
+            info!("Received backup file: {} bytes", data.len());
+            file_received = true;
             break;
         }
     }
 
-    if backup_data.is_empty() {
+    if !file_received {
         error!("No file uploaded");
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    // 创建当前数据的备份（在内存中）
+    // 创建当前数据的备份（直接写入文件）
     info!("Creating backup of current data");
-    let mut current_backup_data = Vec::new();
-    {
-        let encoder = GzEncoder::new(&mut current_backup_data, Compression::default());
-        let mut tar = Builder::new(encoder);
+    let current_backup_path = format!("{}/zhuque_before_restore_{}.tar.gz", parent_dir, timestamp);
 
-        let data_path = std::path::Path::new(&data_dir);
-        if data_path.exists() {
+    let data_path = std::path::Path::new(&data_dir);
+    if data_path.exists() {
+        let backup_file = std::fs::File::create(&current_backup_path).map_err(|e| {
+            warn!("Failed to create current backup file: {}", e);
+            e
+        }).ok();
+
+        if let Some(backup_file) = backup_file {
+            let encoder = GzEncoder::new(backup_file, Compression::default());
+            let mut tar = Builder::new(encoder);
+
             if let Err(e) = tar.append_dir_all("data", &data_dir) {
                 warn!("Failed to backup current data: {}, continuing anyway", e);
             }
-        }
 
-        if let Err(e) = tar.finish() {
-            warn!("Failed to finish current backup: {}, continuing anyway", e);
-        }
-    }
-
-    // 保存当前备份到临时文件
-    let parent_dir = std::path::Path::new(&data_dir)
-        .parent()
-        .and_then(|p| p.to_str())
-        .unwrap_or(".");
-    let current_backup_path = format!("{}/zhuque_before_restore_{}.tar.gz", parent_dir, timestamp);
-
-    if !current_backup_data.is_empty() {
-        if let Err(e) = fs::write(&current_backup_path, &current_backup_data).await {
-            warn!("Failed to save current backup: {}", e);
+            if let Err(e) = tar.finish() {
+                warn!("Failed to finish current backup: {}, continuing anyway", e);
+            }
         }
     }
 
@@ -163,6 +190,8 @@ pub async fn restore_backup(
     if data_path.exists() {
         if let Err(e) = tokio::fs::remove_dir_all(&data_dir).await {
             error!("Failed to clean data directory: {}", e);
+            // 清理临时文件
+            let _ = fs::remove_file(&uploaded_backup_path).await;
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     }
@@ -170,12 +199,19 @@ pub async fn restore_backup(
     // 创建 data 目录
     if let Err(e) = tokio::fs::create_dir_all(&data_dir).await {
         error!("Failed to create data directory: {}", e);
+        // 清理临时文件
+        let _ = fs::remove_file(&uploaded_backup_path).await;
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
-    // 解压备份文件
+    // 从文件解压备份
     info!("Extracting backup");
-    let decoder = GzDecoder::new(&backup_data[..]);
+    let backup_file = std::fs::File::open(&uploaded_backup_path).map_err(|e| {
+        error!("Failed to open backup file: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let decoder = GzDecoder::new(backup_file);
     let mut archive = Archive::new(decoder);
 
     // 获取父目录路径
@@ -183,6 +219,8 @@ pub async fn restore_backup(
 
     if let Err(e) = archive.unpack(parent_path) {
         error!("Failed to extract backup: {}", e);
+        // 清理临时文件
+        let _ = fs::remove_file(&uploaded_backup_path).await;
         return Ok((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({
@@ -192,6 +230,9 @@ pub async fn restore_backup(
             }))
         ));
     }
+
+    // 删除上传的临时备份文件
+    let _ = fs::remove_file(&uploaded_backup_path).await;
 
     // 修复文件权限
     info!("Fixing file permissions");
