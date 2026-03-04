@@ -123,8 +123,11 @@ pub async fn restore_backup(
 
     info!("Starting restore process");
 
-    // 获取父目录路径
-    let parent_dir = std::path::Path::new(&data_dir)
+    // 获取 data_dir 的绝对路径，然后取父目录
+    let data_dir_abs = std::fs::canonicalize(&data_dir).unwrap_or_else(|_| {
+        std::env::current_dir().unwrap().join(&data_dir)
+    });
+    let parent_dir = data_dir_abs
         .parent()
         .and_then(|p| p.to_str())
         .unwrap_or(".");
@@ -139,13 +142,16 @@ pub async fn restore_backup(
         StatusCode::BAD_REQUEST
     })? {
         let name = field.name().unwrap_or("");
+        info!("Processing multipart field: {}", name);
 
         if name == "file" {
+            info!("Reading file data...");
             let data = field.bytes().await.map_err(|e| {
                 error!("Failed to read file data: {}", e);
                 StatusCode::BAD_REQUEST
             })?;
 
+            info!("Writing file to disk: {} bytes", data.len());
             fs::write(&uploaded_backup_path, &data).await.map_err(|e| {
                 error!("Failed to write uploaded file: {}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
@@ -159,7 +165,13 @@ pub async fn restore_backup(
 
     if !file_received {
         error!("No file uploaded");
-        return Err(StatusCode::BAD_REQUEST);
+        return Ok((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "success": false,
+                "message": "未接收到备份文件，请选择一个有效的 .tar.gz 文件"
+            }))
+        ));
     }
 
     // 创建当前数据的备份（直接写入文件）
@@ -195,17 +207,19 @@ pub async fn restore_backup(
             error!("Failed to clean data directory: {}", e);
             // 清理临时文件
             let _ = fs::remove_file(&uploaded_backup_path).await;
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            return Ok((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "success": false,
+                    "message": format!("清空数据目录失败: {}。请检查文件权限。", e),
+                    "current_backup": current_backup_path
+                }))
+            ));
         }
     }
 
-    // 创建 data 目录
-    if let Err(e) = tokio::fs::create_dir_all(&data_dir).await {
-        error!("Failed to create data directory: {}", e);
-        // 清理临时文件
-        let _ = fs::remove_file(&uploaded_backup_path).await;
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-    }
+    // 不要创建 data 目录，让 tar 解压时自动创建
+    // 这样可以避免 data/data 嵌套问题
 
     // 从文件解压备份
     info!("Extracting backup");
@@ -217,10 +231,11 @@ pub async fn restore_backup(
     let decoder = GzDecoder::new(backup_file);
     let mut archive = Archive::new(decoder);
 
-    // 获取父目录路径
-    let parent_path = std::path::Path::new(parent_dir);
+    // 解压到项目根目录，tar 包中的 data/ 会自动创建
+    info!("Extracting backup to: {}", parent_dir);
+    let extract_path = std::path::Path::new(parent_dir);
 
-    if let Err(e) = archive.unpack(parent_path) {
+    if let Err(e) = archive.unpack(extract_path) {
         error!("Failed to extract backup: {}", e);
         // 清理临时文件
         let _ = fs::remove_file(&uploaded_backup_path).await;
@@ -228,7 +243,7 @@ pub async fn restore_backup(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({
                 "success": false,
-                "message": "Failed to extract backup file",
+                "message": format!("备份文件解压失败: {}。请确保上传的是有效的备份文件。", e),
                 "current_backup": current_backup_path
             }))
         ));

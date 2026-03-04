@@ -18,6 +18,7 @@ use crate::services::{AuthService, ConfigService, DependenceService, EnvService,
 #[cfg(not(target_os = "android"))]
 use crate::services::TerminalService;
 use axum::{
+    extract::DefaultBodyLimit,
     http::{StatusCode, Uri},
     middleware,
     response::IntoResponse,
@@ -275,7 +276,9 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/api/auth/totp/verify", post(auth::verify_totp))
         .merge(webhook_routes)
         .merge(protected_routes)
-        .with_state(state);
+        .with_state(state)
+        // 设置请求体大小限制为 500MB，支持大文件备份
+        .layer(DefaultBodyLimit::max(500 * 1024 * 1024));
 
     // 静态文件服务
     let static_dir = std::path::PathBuf::from("./web/dist");
