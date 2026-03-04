@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Grid, Card, Statistic, Table, Space, Tag, Button, Progress } from '@arco-design/web-react';
-import { IconClockCircle, IconCheckCircle, IconCloseCircle } from '@arco-design/web-react/icon';
+import { Grid, Card, Statistic, Table, Space, Tag, Button, Progress, Modal } from '@arco-design/web-react';
+import { IconClockCircle, IconCheckCircle, IconCloseCircle, IconFile } from '@arco-design/web-react/icon';
 import { taskApi } from '@/api/task';
 import { logApi } from '@/api/log';
 import axios from 'axios';
@@ -22,6 +22,9 @@ const Dashboard: React.FC = () => {
   const [logs, setLogs] = useState<Log[]>([]);
   const [loading, setLoading] = useState(true);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
+  const [logVisible, setLogVisible] = useState(false);
+  const [logContent, setLogContent] = useState('');
+  const [logLoading, setLogLoading] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -62,6 +65,19 @@ const Dashboard: React.FC = () => {
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const handleViewLog = async (log: Log) => {
+    setLogVisible(true);
+    setLogContent('');
+    setLogLoading(true);
+
+    try {
+      const startTime = new Date(log.created_at).toLocaleString('zh-CN');
+      setLogContent(`[任务开始时间: ${startTime}]\n${log.output || '无日志输出'}`);
+    } finally {
+      setLogLoading(false);
+    }
   };
 
   const stats = {
@@ -105,6 +121,20 @@ const Dashboard: React.FC = () => {
         if (!duration) return '-';
         return `${duration}ms (${(duration / 1000).toFixed(2)}s)`;
       },
+    },
+    {
+      title: '操作',
+      width: 100,
+      render: (_: any, record: Log) => (
+        <Button
+          type="text"
+          size="small"
+          icon={<IconFile />}
+          onClick={() => handleViewLog(record)}
+        >
+          日志
+        </Button>
+      ),
     },
   ];
 
@@ -212,6 +242,32 @@ const Dashboard: React.FC = () => {
           scroll={{ x: true }}
         />
       </Card>
+
+      <Modal
+        title="日志详情"
+        visible={logVisible}
+        onCancel={() => setLogVisible(false)}
+        footer={null}
+        style={{ width: '80%', maxWidth: 1000 }}
+      >
+        {logLoading ? (
+          <div style={{ textAlign: 'center', padding: '20px' }}>加载中...</div>
+        ) : (
+          <pre style={{
+            background: '#1e1e1e',
+            color: '#d4d4d4',
+            padding: '16px',
+            borderRadius: '4px',
+            maxHeight: '600px',
+            overflow: 'auto',
+            fontSize: '13px',
+            lineHeight: '1.5',
+            margin: 0,
+          }}>
+            {logContent}
+          </pre>
+        )}
+      </Modal>
     </div>
   );
 };

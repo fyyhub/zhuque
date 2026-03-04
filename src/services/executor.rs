@@ -370,32 +370,49 @@ impl Executor {
         let stdout = child.stdout.take().unwrap();
         let stderr = child.stderr.take().unwrap();
 
-        // 读取stdout
+        // 并发读取stdout和stderr，保持时序
         let log_buffers = self.log_buffers.clone();
         let exec_id_clone = execution_id.clone();
         let mut stdout_reader = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = stdout_reader.next_line().await {
-            output.push_str(&line);
-            output.push('\n');
-            let _ = tx.send(line.clone());
-            // 缓存日志
-            if let Some(buffer) = log_buffers.write().await.get_mut(&exec_id_clone) {
-                buffer.push(line);
-                if buffer.len() > 1000 { buffer.remove(0); }
-            }
-        }
-
-        // 读取stderr
         let mut stderr_reader = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = stderr_reader.next_line().await {
-            let stderr_line = format!("[STDERR] {}", line);
-            output.push_str(&stderr_line);
-            output.push('\n');
-            let _ = tx.send(stderr_line.clone());
-            // 缓存日志
-            if let Some(buffer) = log_buffers.write().await.get_mut(&exec_id_clone) {
-                buffer.push(stderr_line);
-                if buffer.len() > 1000 { buffer.remove(0); }
+
+        let mut stdout_done = false;
+        let mut stderr_done = false;
+
+        while !stdout_done || !stderr_done {
+            tokio::select! {
+                result = stdout_reader.next_line(), if !stdout_done => {
+                    match result {
+                        Ok(Some(line)) => {
+                            output.push_str(&line);
+                            output.push('\n');
+                            let _ = tx.send(line.clone());
+                            // 缓存日志
+                            if let Some(buffer) = log_buffers.write().await.get_mut(&exec_id_clone) {
+                                buffer.push(line);
+                                if buffer.len() > 1000 { buffer.remove(0); }
+                            }
+                        }
+                        Ok(None) => stdout_done = true,
+                        Err(_) => stdout_done = true,
+                    }
+                }
+                result = stderr_reader.next_line(), if !stderr_done => {
+                    match result {
+                        Ok(Some(line)) => {
+                            output.push_str(&line);
+                            output.push('\n');
+                            let _ = tx.send(line.clone());
+                            // 缓存日志
+                            if let Some(buffer) = log_buffers.write().await.get_mut(&exec_id_clone) {
+                                buffer.push(line);
+                                if buffer.len() > 1000 { buffer.remove(0); }
+                            }
+                        }
+                        Ok(None) => stderr_done = true,
+                        Err(_) => stderr_done = true,
+                    }
+                }
             }
         }
 
@@ -564,9 +581,8 @@ impl Executor {
                     result = stderr_reader.next_line() => {
                         match result {
                             Ok(Some(line)) => {
-                                let stderr_line = format!("[STDERR] {}", line);
-                                let _ = tx.send(stderr_line.clone());
-                                yield Ok(stderr_line);
+                                let _ = tx.send(line.clone());
+                                yield Ok(line);
                             },
                             Ok(None) => {},
                             Err(e) => {
@@ -742,10 +758,9 @@ impl Executor {
         // 读取stderr
         let mut stderr_reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = stderr_reader.next_line().await {
-            let stderr_line = format!("[STDERR] {}", line);
-            output.push_str(&stderr_line);
+            output.push_str(&line);
             output.push('\n');
-            let _ = tx.send(stderr_line);
+            let _ = tx.send(line);
         }
 
         // 等待进程结束

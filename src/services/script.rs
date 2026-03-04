@@ -371,7 +371,7 @@ impl ScriptService {
                     }
                     result = stderr_reader.next_line() => {
                         match result {
-                            Ok(Some(line)) => yield Ok(format!("[STDERR] {}", line)),
+                            Ok(Some(line)) => yield Ok(line),
                             Ok(None) => {},
                             Err(e) => yield Err(anyhow!("Stderr error: {}", e)),
                         }
@@ -492,7 +492,7 @@ impl ScriptService {
                     }
                     result = stderr_reader.next_line() => {
                         match result {
-                            Ok(Some(line)) => yield Ok(format!("[STDERR] {}", line)),
+                            Ok(Some(line)) => yield Ok(line),
                             Ok(None) => {},
                             Err(e) => yield Err(anyhow!("Stderr error: {}", e)),
                         }
