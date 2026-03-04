@@ -19,7 +19,7 @@ pub struct CreateSystemConfig {
     pub description: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateSystemConfig {
     pub value: String,
     pub description: Option<String>,

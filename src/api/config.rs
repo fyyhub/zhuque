@@ -44,15 +44,28 @@ pub async fn update_config(
     Path(key): Path<String>,
     Json(update): Json<UpdateSystemConfig>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    // 先尝试更新
     let config = state
         .config_service
-        .update(&key, update)
+        .update(&key, update.clone())
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    // 如果配置不存在，则创建
     match config {
         Some(c) => Ok(Json(c)),
-        None => Err((StatusCode::NOT_FOUND, "配置不存在".to_string())),
+        None => {
+            let created = state
+                .config_service
+                .create(crate::models::CreateSystemConfig {
+                    key,
+                    value: update.value,
+                    description: update.description,
+                })
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            Ok(Json(created))
+        }
     }
 }
 

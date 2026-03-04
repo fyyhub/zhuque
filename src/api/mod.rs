@@ -231,6 +231,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/api/configs/:key",
             get(config::get_config)
                 .post(config::update_config)
+                .put(config::update_config)
                 .delete(config::delete_config),
         )
         .route("/api/configs/mirror/config", get(config::get_mirror_config))
