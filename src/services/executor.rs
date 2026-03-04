@@ -194,12 +194,14 @@ impl Executor {
             );
 
             if !has_python_cmd && script_index == 0 {
-                // 脚本是第一个参数（直接执行），转换为 python -u script.py
+                // 脚本是第一个参数（直接执行），转换为 python -u script.py [args...]
                 let script_path = adjusted_parts[0].clone();
+                let remaining_args: Vec<String> = adjusted_parts.iter().skip(1).cloned().collect();
                 adjusted_parts.clear();
                 adjusted_parts.push(PYTHON_CMD.as_str().to_string());
                 adjusted_parts.push("-u".to_string());
                 adjusted_parts.push(script_path);
+                adjusted_parts.extend(remaining_args);
                 info!("Converted direct Python script execution to: {} -u", PYTHON_CMD.as_str());
             } else if has_python_cmd {
                 // 命令中已有python，添加-u参数
