@@ -6,11 +6,62 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::{broadcast, RwLock};
 use tracing::{error, info};
 use uuid::Uuid;
+
+/// 辅助结构体：处理 \r 和 \n 作为行分隔符的读取器
+struct LineReader<R> {
+    reader: BufReader<R>,
+    buffer: Vec<u8>,
+}
+
+impl<R: AsyncReadExt + Unpin> LineReader<R> {
+    fn new(reader: R) -> Self {
+        Self {
+            reader: BufReader::new(reader),
+            buffer: Vec::new(),
+        }
+    }
+
+    async fn next_line(&mut self) -> std::io::Result<Option<String>> {
+        self.buffer.clear();
+
+        loop {
+            let mut byte = [0u8; 1];
+            match self.reader.read(&mut byte).await? {
+                0 => {
+                    // EOF
+                    if self.buffer.is_empty() {
+                        return Ok(None);
+                    } else {
+                        let line = String::from_utf8_lossy(&self.buffer).to_string();
+                        self.buffer.clear();
+                        return Ok(Some(line));
+                    }
+                }
+                _ => {
+                    match byte[0] {
+                        b'\n' | b'\r' => {
+                            // 遇到 \n 或 \r，返回当前行
+                            if !self.buffer.is_empty() {
+                                let line = String::from_utf8_lossy(&self.buffer).to_string();
+                                self.buffer.clear();
+                                return Ok(Some(line));
+                            }
+                            // 如果 buffer 为空，继续读取下一个字符
+                        }
+                        _ => {
+                            self.buffer.push(byte[0]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 #[derive(Clone, Serialize)]
 pub struct ExecutionInfo {
@@ -373,8 +424,8 @@ impl Executor {
         // 并发读取stdout和stderr，保持时序
         let log_buffers = self.log_buffers.clone();
         let exec_id_clone = execution_id.clone();
-        let mut stdout_reader = BufReader::new(stdout).lines();
-        let mut stderr_reader = BufReader::new(stderr).lines();
+        let mut stdout_reader = LineReader::new(stdout);
+        let mut stderr_reader = LineReader::new(stderr);
 
         let mut stdout_done = false;
         let mut stderr_done = false;
@@ -559,8 +610,8 @@ impl Executor {
         let exec_id = execution_id.clone();
 
         let stream = async_stream::stream! {
-            let mut stdout_reader = BufReader::new(stdout).lines();
-            let mut stderr_reader = BufReader::new(stderr).lines();
+            let mut stdout_reader = LineReader::new(stdout);
+            let mut stderr_reader = LineReader::new(stderr);
 
             loop {
                 tokio::select! {
@@ -748,7 +799,7 @@ impl Executor {
         let mut output = String::new();
 
         // 读取stdout
-        let mut stdout_reader = BufReader::new(stdout).lines();
+        let mut stdout_reader = LineReader::new(stdout);
         while let Ok(Some(line)) = stdout_reader.next_line().await {
             output.push_str(&line);
             output.push('\n');
@@ -756,7 +807,7 @@ impl Executor {
         }
 
         // 读取stderr
-        let mut stderr_reader = BufReader::new(stderr).lines();
+        let mut stderr_reader = LineReader::new(stderr);
         while let Ok(Some(line)) = stderr_reader.next_line().await {
             output.push_str(&line);
             output.push('\n');
