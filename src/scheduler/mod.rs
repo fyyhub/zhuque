@@ -219,6 +219,42 @@ impl Scheduler {
         self.executor.list_running().await
     }
 
+    /// 订阅运行任务状态变化（包含任务数据）
+    pub async fn subscribe_running_tasks_with_data(&self) -> tokio::sync::broadcast::Receiver<crate::services::executor::RunningTasksUpdate> {
+        let mut rx = self.executor.subscribe_running_tasks();
+        let (tx, rx_out) = tokio::sync::broadcast::channel(100);
+        let task_service = self.task_service.clone();
+
+        tokio::spawn(async move {
+            while let Ok(mut update) = rx.recv().await {
+                // 如果任务结束，查询任务基础数据并合并执行信息
+                if update.change_type == "finished" {
+                    if let Ok(Some(mut task)) = task_service.get(update.changed_task_id).await {
+                        // 使用通知中的执行信息更新任务数据
+                        if let Some(last_run_at) = update.last_run_at {
+                            task.last_run_at = Some(last_run_at);
+                        }
+                        if let Some(duration) = update.last_run_duration {
+                            task.last_run_duration = Some(duration);
+                        }
+
+                        if let Ok(task_json) = serde_json::to_value(&task) {
+                            update.task_data = Some(task_json);
+                        }
+                    }
+                }
+                let _ = tx.send(update);
+            }
+        });
+
+        rx_out
+    }
+
+    /// 订阅运行任务状态变化
+    pub fn subscribe_running_tasks(&self) -> tokio::sync::broadcast::Receiver<crate::services::executor::RunningTasksUpdate> {
+        self.executor.subscribe_running_tasks()
+    }
+
     /// 订阅执行日志
     pub async fn subscribe_logs(&self, execution_id: &str) -> anyhow::Result<tokio::sync::broadcast::Receiver<String>> {
         self.executor.subscribe_logs(execution_id).await

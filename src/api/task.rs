@@ -201,6 +201,43 @@ pub async fn list_running_tasks(
     Ok(Json(running))
 }
 
+/// 订阅正在执行的任务（SSE）
+pub async fn subscribe_running_tasks(
+    State(state): State<Arc<AppState>>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let mut rx = state.scheduler.subscribe_running_tasks_with_data().await;
+
+    // 立即发送当前状态
+    let initial_running = state.scheduler.list_running().await;
+    let initial_update = serde_json::json!({
+        "running_ids": initial_running,
+        "changed_task_id": 0,
+        "change_type": "initial"
+    });
+    let initial_json = serde_json::to_string(&initial_update).unwrap_or_else(|_| "{}".to_string());
+
+    let stream = async_stream::stream! {
+        // 首次推送当前状态
+        yield Ok(Event::default().data(initial_json));
+
+        // 订阅后续变化
+        loop {
+            match rx.recv().await {
+                Ok(update) => {
+                    let json = serde_json::to_string(&update).unwrap_or_else(|_| "{}".to_string());
+                    yield Ok(Event::default().data(json));
+                }
+                Err(_) => {
+                    // channel 关闭，结束流
+                    break;
+                }
+            }
+        }
+    };
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
 /// 列出所有活跃的执行
 pub async fn list_executions(
     State(state): State<Arc<AppState>>,

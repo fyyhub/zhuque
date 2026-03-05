@@ -72,6 +72,19 @@ pub struct ExecutionInfo {
     pub started_at: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct RunningTasksUpdate {
+    pub running_ids: Vec<i64>,
+    pub changed_task_id: i64,
+    pub change_type: String, // "started" or "finished"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_data: Option<serde_json::Value>, // 任务结束时包含更新后的任务数据
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_run_at: Option<chrono::DateTime<chrono::Utc>>, // 任务执行时间
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_run_duration: Option<i64>, // 任务执行耗时（毫秒）
+}
+
 pub struct Executor {
     env_service: Arc<EnvService>,
     config_service: Arc<ConfigService>,
@@ -79,10 +92,12 @@ pub struct Executor {
     log_channels: Arc<RwLock<HashMap<String, broadcast::Sender<String>>>>, // execution_id -> log channel
     log_buffers: Arc<RwLock<HashMap<String, Vec<String>>>>, // execution_id -> log buffer
     executions: Arc<RwLock<HashMap<String, ExecutionInfo>>>, // execution_id -> execution info
+    running_tasks_notifier: broadcast::Sender<RunningTasksUpdate>, // 运行任务状态变化通知
 }
 
 impl Executor {
     pub fn new(env_service: Arc<EnvService>, config_service: Arc<ConfigService>) -> Self {
+        let (tx, _) = broadcast::channel(100);
         Self {
             env_service,
             config_service,
@@ -90,6 +105,7 @@ impl Executor {
             log_channels: Arc::new(RwLock::new(HashMap::new())),
             log_buffers: Arc::new(RwLock::new(HashMap::new())),
             executions: Arc::new(RwLock::new(HashMap::new())),
+            running_tasks_notifier: tx,
         }
     }
 
@@ -413,6 +429,18 @@ impl Executor {
         let pid = child.id().ok_or_else(|| anyhow!("Failed to get process ID"))?;
         self.running_tasks.write().await.insert(task.id, pid);
 
+        // 通知运行状态变化
+        let running_list: Vec<i64> = self.running_tasks.read().await.keys().copied().collect();
+        let update = RunningTasksUpdate {
+            running_ids: running_list,
+            changed_task_id: task.id,
+            change_type: "started".to_string(),
+            task_data: None,
+            last_run_at: None,
+            last_run_duration: None,
+        };
+        let _ = self.running_tasks_notifier.send(update);
+
         // 更新执行信息中的 PID
         if let Some(info) = self.executions.write().await.get_mut(&execution_id) {
             info.pid = Some(pid);
@@ -486,7 +514,8 @@ impl Executor {
         output.push('\n');
 
         // 清理进程记录
-        self.running_tasks.write().await.remove(&task.id);
+        let task_id = task.id;
+        self.running_tasks.write().await.remove(&task_id);
 
         if !success {
             overall_success = false;
@@ -528,8 +557,23 @@ impl Executor {
         output.push_str(&duration_msg);
         output.push('\n');
 
+        // 获取任务开始时间
+        let started_at = self.executions.read().await.get(&execution_id).map(|e| e.started_at);
+
         self.log_channels.write().await.remove(&execution_id);
         self.executions.write().await.remove(&execution_id);
+
+        // 通知运行状态变化（包含执行信息）
+        let running_list: Vec<i64> = self.running_tasks.read().await.keys().copied().collect();
+        let update = RunningTasksUpdate {
+            running_ids: running_list,
+            changed_task_id: task_id,
+            change_type: "finished".to_string(),
+            task_data: None,
+            last_run_at: started_at,
+            last_run_duration: Some(duration),
+        };
+        let _ = self.running_tasks_notifier.send(update);
 
         if overall_success {
             info!("Task {} completed successfully", task.name);
@@ -595,6 +639,18 @@ impl Executor {
         let pid = child.id().ok_or_else(|| anyhow!("Failed to get process ID"))?;
         self.running_tasks.write().await.insert(task.id, pid);
 
+        // 通知运行状态变化
+        let running_list: Vec<i64> = self.running_tasks.read().await.keys().copied().collect();
+        let update = RunningTasksUpdate {
+            running_ids: running_list,
+            changed_task_id: task.id,
+            change_type: "started".to_string(),
+            task_data: None,
+            last_run_at: None,
+            last_run_duration: None,
+        };
+        let _ = self.running_tasks_notifier.send(update);
+
         // 更新执行信息中的 PID
         if let Some(info) = self.executions.write().await.get_mut(&execution_id) {
             info.pid = Some(pid);
@@ -608,6 +664,7 @@ impl Executor {
         let log_channels = self.log_channels.clone();
         let executions = self.executions.clone();
         let exec_id = execution_id.clone();
+        let notifier = self.running_tasks_notifier.clone();
 
         let stream = async_stream::stream! {
             let mut stdout_reader = LineReader::new(stdout);
@@ -666,6 +723,26 @@ impl Executor {
 
             // 清理进程记录
             running_tasks.write().await.remove(&task_id);
+
+            // 获取执行信息
+            let exec_info = executions.read().await.get(&exec_id).cloned();
+            let started_at = exec_info.as_ref().map(|e| e.started_at);
+            let duration = started_at.map(|start| {
+                (chrono::Utc::now() - start).num_milliseconds()
+            });
+
+            // 通知运行状态变化
+            let running_list: Vec<i64> = running_tasks.read().await.keys().copied().collect();
+            let update = RunningTasksUpdate {
+                running_ids: running_list,
+                changed_task_id: task_id,
+                change_type: "finished".to_string(),
+                task_data: None,
+                last_run_at: started_at,
+                last_run_duration: duration,
+            };
+            let _ = notifier.send(update);
+
             log_channels.write().await.remove(&exec_id);
             executions.write().await.remove(&exec_id);
         };
@@ -697,6 +774,11 @@ impl Executor {
     /// 列出正在执行的任务
     pub async fn list_running(&self) -> Vec<i64> {
         self.running_tasks.read().await.keys().copied().collect()
+    }
+
+    /// 订阅运行任务状态变化
+    pub fn subscribe_running_tasks(&self) -> broadcast::Receiver<RunningTasksUpdate> {
+        self.running_tasks_notifier.subscribe()
     }
 
     /// 订阅执行日志

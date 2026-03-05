@@ -130,6 +130,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // 任务管理
         .route("/api/tasks", get(task::list_tasks).post(task::create_task))
         .route("/api/tasks/running", get(task::list_running_tasks))
+        .route("/api/tasks/running/stream", get(task::subscribe_running_tasks))
         .route(
             "/api/tasks/:id",
             get(task::get_task)

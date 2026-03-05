@@ -56,6 +56,7 @@ const Tasks: React.FC = () => {
   const [currentViewTask, setCurrentViewTask] = useState<Task | null>(null);
   const [elapsedTime, setElapsedTime] = useState<number>(0);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const runningTasksEventSourceRef = useRef<EventSource | null>(null);
   const timerRef = useRef<number | null>(null);
 
   // Webhook相关状态
@@ -66,12 +67,59 @@ const Tasks: React.FC = () => {
   useEffect(() => {
     loadGroups();
     loadTasks();
-    loadRunningTasks();
     loadWebhookToken();
-    // 每5秒刷新运行状态
-    const interval = setInterval(() => {
-      loadRunningTasks();
-    }, 5000);
+
+    // 使用SSE订阅运行中的任务
+    const token = localStorage.getItem('token');
+    const url = `/api/tasks/running/stream${token ? `?token=${token}` : ''}`;
+
+    const connectRunningTasksSSE = () => {
+      const eventSource = new EventSource(url);
+      runningTasksEventSourceRef.current = eventSource;
+
+      eventSource.onopen = () => {
+        console.log('运行任务SSE连接已建立');
+      };
+
+      eventSource.onmessage = (event) => {
+        try {
+          const update = JSON.parse(event.data);
+          console.log('收到运行中任务更新:', update);
+
+          // 更新运行中任务列表
+          setRunningTasks(new Set<number>(update.running_ids));
+
+          // 如果任务开始，立即更新执行时间为当前时间（不显示耗时）
+          if (update.change_type === 'started' && update.changed_task_id) {
+            setTasks(prevTasks =>
+              prevTasks.map(t =>
+                t.id === update.changed_task_id
+                  ? { ...t, last_run_at: new Date().toISOString(), last_run_duration: null }
+                  : t
+              )
+            );
+          }
+
+          // 如果任务结束且包含任务数据，直接更新本地状态
+          if (update.change_type === 'finished' && update.task_data) {
+            setTasks(prevTasks =>
+              prevTasks.map(t => t.id === update.changed_task_id ? update.task_data : t)
+            );
+          }
+        } catch (error) {
+          console.error('解析运行任务数据失败:', error);
+        }
+      };
+
+      eventSource.onerror = (error) => {
+        console.error('运行任务SSE错误:', error);
+        eventSource.close();
+        // 3秒后重连
+        setTimeout(connectRunningTasksSSE, 3000);
+      };
+    };
+
+    connectRunningTasksSSE();
 
     // 监听窗口大小变化
     const handleResize = () => {
@@ -80,11 +128,13 @@ const Tasks: React.FC = () => {
     window.addEventListener('resize', handleResize);
 
     return () => {
-      clearInterval(interval);
       window.removeEventListener('resize', handleResize);
       // 清理SSE连接
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
+      }
+      if (runningTasksEventSourceRef.current) {
+        runningTasksEventSourceRef.current.close();
       }
       // 清理计时器
       if (timerRef.current) {
@@ -200,19 +250,6 @@ const Tasks: React.FC = () => {
     }
   };
 
-  const loadRunningTasks = async () => {
-    try {
-      const res: any = await taskApi.listRunning();
-      console.log('运行中任务API返回:', res);
-      // API返回的是任务ID数组，不是Task对象数组
-      const runningIds = new Set<number>(res);
-      console.log('运行中任务ID集合:', Array.from(runningIds));
-      setRunningTasks(runningIds);
-    } catch (error) {
-      console.error('Failed to load running tasks:', error);
-    }
-  };
-
   const handleAdd = () => {
     setEditingTask(null);
     form.resetFields();
@@ -272,9 +309,7 @@ const Tasks: React.FC = () => {
     try {
       await taskApi.run(id);
       Message.success('任务已开始执行');
-      // 立即刷新状态
-      loadRunningTasks();
-      loadTasks();
+      // SSE会自动更新运行状态和任务数据，无需手动刷新
     } catch (error: any) {
       Message.error(error.response?.data?.error || '执行失败');
     }
@@ -284,8 +319,7 @@ const Tasks: React.FC = () => {
     try {
       await taskApi.kill(id);
       Message.success('任务已终止');
-      loadRunningTasks();
-      loadTasks();
+      // SSE会自动更新运行状态和任务数据
     } catch (error: any) {
       Message.error(error.response?.data?.error || '终止失败');
     }
@@ -303,17 +337,11 @@ const Tasks: React.FC = () => {
       timerRef.current = null;
     }
 
-    // 先刷新运行状态，确保是最新的
-    try {
-      const res: any = await taskApi.listRunning();
-      console.log('查看日志时刷新运行状态，API返回:', res);
-      // API返回的是任务ID数组
-      const runningIds = new Set(res);
-      const isRunning = runningIds.has(task.id);
+    // 直接使用当前的 runningTasks 状态判断
+    const isRunning = runningTasks.has(task.id);
+    console.log('查看日志 - 任务ID:', task.id, '是否运行中:', isRunning);
 
-      console.log('查看日志 - 任务ID:', task.id, '是否运行中:', isRunning, 'runningIds:', Array.from(runningIds));
-
-      if (isRunning) {
+    if (isRunning) {
         // 实时日志 - 使用SSE
         setIsLiveLog(true);
 
@@ -397,7 +425,7 @@ const Tasks: React.FC = () => {
         setIsLiveLog(false);
 
         try {
-          const response: any = await logApi.list(task.id, 1);
+          const response: any = await logApi.list(task.id, 1, 1);
           setLogLoading(false);
 
           const logs = response.data || response;
@@ -414,11 +442,6 @@ const Tasks: React.FC = () => {
           setLogContent('获取日志失败: ' + (error.message || '未知错误'));
         }
       }
-    } catch (error) {
-      console.error('刷新运行状态失败:', error);
-      setLogLoading(false);
-      setLogContent('获取运行状态失败');
-    }
   };
 
   const handleCloseLog = () => {
@@ -497,7 +520,7 @@ const Tasks: React.FC = () => {
       render: (enabled: boolean, record: Task) => {
         const isRunning = runningTasks.has(record.id);
         return (
-          <Space>
+          <Space direction="vertical" size="small">
             <Tag color={enabled ? 'green' : 'gray'}>
               {enabled ? '启用' : '禁用'}
             </Tag>
