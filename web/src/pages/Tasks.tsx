@@ -420,31 +420,21 @@ const Tasks: React.FC = () => {
           setLogContent('获取执行记录失败');
         }
       } else {
-        // 历史日志 - 获取最后一次执行的日志
+        // 历史日志 - 直接获取最后一次执行的日志详情
         setIsLiveLog(false);
 
         try {
-          const response: any = await logApi.list(task.id, 1, 1);
+          const logDetail = await logApi.getLatestByTask(task.id);
           setLogLoading(false);
-
-          const logs = response.data || response;
-          if (logs && logs.length > 0) {
-            const log = logs[0];
-            // 获取完整日志详情
-            try {
-              const logDetail = await logApi.get(log.id);
-              const startTime = new Date(logDetail.created_at).toLocaleString('zh-CN');
-              setLogContent(`[任务开始时间: ${startTime}]\n${logDetail.output || '无日志输出'}`);
-            } catch (error) {
-              console.error('Failed to load log detail:', error);
-              setLogContent('加载日志详情失败');
-            }
-          } else {
-            setLogContent('暂无执行日志');
-          }
+          const startTime = new Date(logDetail.created_at).toLocaleString('zh-CN');
+          setLogContent(`[任务开始时间: ${startTime}]\n${logDetail.output || '无日志输出'}`);
         } catch (error: any) {
           setLogLoading(false);
-          setLogContent('获取日志失败: ' + (error.message || '未知错误'));
+          if (error.response?.status === 404) {
+            setLogContent('暂无执行日志');
+          } else {
+            setLogContent('获取日志失败: ' + (error.message || '未知错误'));
+          }
         }
       }
   };

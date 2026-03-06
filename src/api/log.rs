@@ -50,6 +50,19 @@ pub async fn get_log(
     Ok(Json(log))
 }
 
+pub async fn get_latest_log_by_task(
+    State(state): State<Arc<AppState>>,
+    Path(task_id): Path<i64>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let log = state.log_service
+        .get_latest_by_task(task_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    Ok(Json(log))
+}
+
 pub async fn delete_old_logs(
     State(state): State<Arc<AppState>>,
     Path(days): Path<i64>,

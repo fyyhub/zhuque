@@ -87,6 +87,17 @@ impl LogService {
         Ok(log)
     }
 
+    pub async fn get_latest_by_task(&self, task_id: i64) -> Result<Option<Log>> {
+        let pool = self.pool.read().await;
+        let log = sqlx::query_as::<_, Log>(
+            "SELECT * FROM logs WHERE task_id = ? ORDER BY created_at DESC LIMIT 1"
+        )
+        .bind(task_id)
+        .fetch_optional(&*pool)
+        .await?;
+        Ok(log)
+    }
+
     pub async fn create(&self, task_id: i64, output: String, status: String, duration: Option<i64>) -> Result<Log> {
         let pool = self.pool.read().await;
         let now = Utc::now();
