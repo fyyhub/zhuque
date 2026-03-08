@@ -2,7 +2,7 @@ use crate::api::AppState;
 use crate::models::{LoginRequest, TotpVerifyRequest, InitialSetupRequest, InitialSetupStatusResponse, UpdatePasswordRequest, Claims};
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{StatusCode, HeaderMap},
     response::IntoResponse,
     Json,
 };
@@ -10,6 +10,25 @@ use axum::extract::ConnectInfo;
 use std::net::SocketAddr;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+
+/// 从请求头中获取真实客户端IP
+fn get_client_ip(headers: &HeaderMap, addr: SocketAddr) -> String {
+    // 按优先级尝试从不同的头获取真实IP
+    if let Some(ip) = headers.get("x-real-ip").and_then(|v| v.to_str().ok()) {
+        return ip.to_string();
+    }
+
+    if let Some(ip) = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(|v| v.trim())
+    {
+        return ip.to_string();
+    }
+
+    addr.ip().to_string()
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TotpEnableRequestFull {
@@ -60,13 +79,14 @@ pub async fn change_password(
 pub async fn login(
     State(state): State<Arc<AppState>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(request): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     match state.auth_service.login_step_one(&request).await {
         Ok(response) => {
             // 如果登录成功（不需要TOTP或已经返回token），记录登录日志
             if response.token.is_some() {
-                let ip = addr.ip().to_string();
+                let ip = get_client_ip(&headers, addr);
                 let username = request.username.clone();
                 let login_log_service = state.login_log_service.clone();
                 // 异步记录日志，不阻塞登录响应
@@ -86,6 +106,7 @@ pub async fn login(
 pub async fn verify_totp(
     State(state): State<Arc<AppState>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(request): Json<TotpVerifyRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     // 验证session token
@@ -101,7 +122,7 @@ pub async fn verify_totp(
             match state.auth_service.login_step_two(&username) {
                 Ok(response) => {
                     // 异步记录登录日志，不阻塞登录响应
-                    let ip = addr.ip().to_string();
+                    let ip = get_client_ip(&headers, addr);
                     let username_clone = username.clone();
                     let login_log_service = state.login_log_service.clone();
                     tokio::spawn(async move {
