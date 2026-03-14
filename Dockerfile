@@ -1,4 +1,4 @@
-FROM rust:1.93-bookworm AS builder
+FROM rust:1.93-trixie AS builder
 
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get update && \
@@ -16,10 +16,12 @@ COPY web ./web
 WORKDIR /build/web
 RUN npm install && npm run build
 
-FROM debian:bookworm-slim
+FROM debian:stable-slim
 
-RUN apt-get update && \
-    apt-get install -y \
+RUN RUN printf 'APT::Install-Recommends "false";\nAPT::Install-Suggests "false";\n' > /etc/apt/apt.conf.d/90disable-suggests \
+    && printf 'Acquire::http::Pipeline-Depth "0";\n' > /etc/apt/apt.conf.d/99nopipelining \
+    && apt-get update \
+    && apt-get install -y \
     curl \
     ca-certificates \
     python3 \
