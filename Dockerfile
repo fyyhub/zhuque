@@ -40,7 +40,7 @@ RUN mkdir -p /app/data/scripts /app/data/db
 ENV DATABASE_URL=sqlite:///app/data/db/zhuque.db \
     RUST_LOG=info \
     PORT=3000
-
+ENV DEBIAN_FRONTEND=noninteractive
 EXPOSE 3000
 
 CMD ["/app/zhuque"]
