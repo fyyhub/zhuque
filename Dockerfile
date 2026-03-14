@@ -18,9 +18,7 @@ RUN npm install && npm run build
 
 FROM debian:stable-slim
 
-RUN RUN printf 'APT::Install-Recommends "false";\nAPT::Install-Suggests "false";\n' > /etc/apt/apt.conf.d/90disable-suggests \
-    && printf 'Acquire::http::Pipeline-Depth "0";\n' > /etc/apt/apt.conf.d/99nopipelining \
-    && apt-get update \
+RUN apt-get update \
     && apt-get install -y \
     curl \
     ca-certificates \
@@ -28,8 +26,7 @@ RUN RUN printf 'APT::Install-Recommends "false";\nAPT::Install-Suggests "false";
     python3-pip \
     git \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y nodejs
 
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
