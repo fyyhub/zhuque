@@ -771,6 +771,86 @@ impl Executor {
         }
     }
 
+    /// 中止正在执行的任务并记录日志
+    pub async fn kill_task_with_log(&self, task_id: i64, log_service: Arc<crate::services::LogService>) -> Result<()> {
+        // 获取执行信息和 PID（在删除之前）
+        let exec_info = {
+            let executions = self.executions.read().await;
+            executions.values()
+                .find(|e| e.task_id == task_id)
+                .cloned()
+        };
+
+        // 获取 PID 并从 running_tasks 中移除（快速释放锁）
+        let pid = {
+            let mut tasks = self.running_tasks.write().await;
+            tasks.remove(&task_id)
+        };
+
+        if let Some(pid) = pid {
+            // 释放锁后再执行 kill 命令，避免阻塞
+            // 使用 spawn 而不是 output，不等待命令完成
+            let kill_result = Command::new("kill")
+                .arg("-9")
+                .arg(pid.to_string())
+                .spawn();
+
+            match kill_result {
+                Ok(_) => {
+                    // kill 命令已发送，记录终止日志
+                    if let Some(info) = exec_info {
+                        let duration = (chrono::Utc::now() - info.started_at).num_milliseconds();
+
+                        // 获取已执行的输出
+                        let existing_output = {
+                            let buffers = self.log_buffers.read().await;
+                            buffers.get(&info.execution_id)
+                                .map(|lines| lines.join("\n"))
+                                .unwrap_or_default()
+                        };
+
+                        // 组合完整的日志输出
+                        let mut log_output = String::new();
+                        if !existing_output.is_empty() {
+                            log_output.push_str(&existing_output);
+                            log_output.push('\n');
+                        }
+                        log_output.push_str(&format!("[KILLED] Task '{}' was manually terminated (PID: {})", info.task_name, pid));
+
+                        // 清理执行信息
+                        self.executions.write().await.remove(&info.execution_id);
+                        self.log_channels.write().await.remove(&info.execution_id);
+                        self.log_buffers.write().await.remove(&info.execution_id);
+
+                        // 通知运行状态变化
+                        let running_list: Vec<i64> = self.running_tasks.read().await.keys().copied().collect();
+                        let update = RunningTasksUpdate {
+                            running_ids: running_list,
+                            changed_task_id: task_id,
+                            change_type: "finished".to_string(),
+                            task_data: None,
+                            last_run_at: Some(info.started_at),
+                            last_run_duration: Some(duration),
+                        };
+                        let _ = self.running_tasks_notifier.send(update);
+
+                        // 保存日志到数据库
+                        if let Err(e) = log_service.create(task_id, log_output, "killed".to_string(), Some(duration), info.started_at).await {
+                            error!("Failed to save kill log: {}", e);
+                        }
+                    }
+                    Ok(())
+                }
+                Err(e) => {
+                    error!("Failed to spawn kill command for PID {}: {}", pid, e);
+                    Err(anyhow!("Failed to kill process {}: {}", pid, e))
+                }
+            }
+        } else {
+            Err(anyhow!("Task not running"))
+        }
+    }
+
     /// 列出正在执行的任务
     pub async fn list_running(&self) -> Vec<i64> {
         self.running_tasks.read().await.keys().copied().collect()

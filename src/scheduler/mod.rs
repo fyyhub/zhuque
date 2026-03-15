@@ -211,7 +211,7 @@ impl Scheduler {
 
     /// 中止正在执行的任务
     pub async fn kill_task(&self, task_id: i64) -> anyhow::Result<()> {
-        self.executor.kill_task(task_id).await
+        self.executor.kill_task_with_log(task_id, self.log_service.clone()).await
     }
 
     /// 列出正在执行的任务
