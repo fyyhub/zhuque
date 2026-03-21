@@ -18,7 +18,7 @@ interface SystemInfo {
 }
 
 const Dashboard: React.FC = () => {
-  const [tasks, setTasks] = useState<Array<{ id: number; name: string }>>([]);
+  const [tasks, setTasks] = useState<Array<{ id: number; name: string; enabled: boolean }>>([]);
   const [logs, setLogs] = useState<Log[]>([]);
   const [loading, setLoading] = useState(true);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
@@ -86,8 +86,8 @@ const Dashboard: React.FC = () => {
 
   const stats = {
     total: tasks.length,
-    enabled: 0,  // 简化版不包含enabled字段
-    disabled: 0, // 简化版不包含enabled字段
+    enabled: tasks.filter(t => t.enabled).length,
+    disabled: tasks.filter(t => !t.enabled).length,
   };
 
   const columns = [

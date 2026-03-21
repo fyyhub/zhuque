@@ -24,6 +24,7 @@ pub struct ListTasksQuery {
 struct SimpleTask {
     id: i64,
     name: String,
+    enabled: bool,
 }
 
 pub async fn list_tasks(
@@ -44,6 +45,7 @@ pub async fn list_tasks(
                 .map(|t| SimpleTask {
                     id: t.id,
                     name: t.name,
+                    enabled: t.enabled,
                 })
                 .collect();
             Ok(Json(serde_json::json!(simple_tasks)))

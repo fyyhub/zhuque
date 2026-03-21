@@ -5,8 +5,8 @@ export const taskApi = {
   // 获取任务列表
   list: () => request.get<Task[]>('/tasks'),
 
-  // 获取任务列表（简化版，仅id和name）
-  listSimple: () => request.get<Array<{ id: number; name: string }>>('/tasks?fields=simple'),
+  // 获取任务列表（简化版，仅id、name和enabled）
+  listSimple: () => request.get<Array<{ id: number; name: string; enabled: boolean }>>('/tasks?fields=simple'),
 
   // 获取任务详情
   get: (id: number) => request.get<Task>(`/tasks/${id}`),
