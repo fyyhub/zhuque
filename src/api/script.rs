@@ -136,7 +136,7 @@ pub async fn upload_script(
         tracing::info!("Uploading file: {}", file_name);
 
         let content = field
-            .text()
+            .bytes()
             .await
             .map_err(|e| {
                 tracing::error!("Failed to read file content: {:?}", e);
@@ -160,7 +160,7 @@ pub async fn upload_script(
 
         state
             .script_service
-            .write(&final_path, &content)
+            .write_bytes(&final_path, &content)
             .await
             .map_err(|e| {
                 tracing::error!("Failed to write file: {:?}", e);

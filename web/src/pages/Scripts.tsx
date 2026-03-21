@@ -69,6 +69,10 @@ const Scripts: React.FC = () => {
   const [logContent, setLogContent] = useState('');
   const [logLoading, setLogLoading] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
+  const [archiveUploadProgress, setArchiveUploadProgress] = useState(0);
+  const [isArchiveUploading, setIsArchiveUploading] = useState(false);
   const [form] = Form.useForm();
   const [folderForm] = Form.useForm();
   const [renameForm] = Form.useForm();
@@ -821,40 +825,102 @@ const Scripts: React.FC = () => {
             </Space>
             <Space style={{ width: '100%' }} size="small">
               <Upload
-                action="/api/scripts"
-                headers={{ Authorization: `Bearer ${localStorage.getItem('token')}` }}
-                data={{ path: currentPath }}
-                onChange={(_, file) => {
-                  if (file.status === 'done') {
+                customRequest={async (option) => {
+                  const { file, onProgress, onSuccess, onError } = option;
+                  const formData = new FormData();
+                  formData.append('file', file);
+                  if (currentPath) {
+                    formData.append('path', currentPath);
+                  }
+
+                  setIsUploading(true);
+                  setUploadProgress(0);
+
+                  try {
+                    const token = localStorage.getItem('token');
+                    await axios.post('/api/scripts', formData, {
+                      headers: {
+                        Authorization: `Bearer ${token}`,
+                      },
+                      onUploadProgress: (progressEvent) => {
+                        const percent = progressEvent.total
+                          ? Math.round((progressEvent.loaded * 100) / progressEvent.total)
+                          : 0;
+                        setUploadProgress(percent);
+                        onProgress(percent);
+                      },
+                    });
+                    onSuccess();
                     Message.success('上传成功');
                     loadFiles();
-                  } else if (file.status === 'error') {
+                  } catch (error) {
+                    onError();
                     Message.error('上传失败');
+                  } finally {
+                    setIsUploading(false);
+                    setUploadProgress(0);
                   }
                 }}
                 showUploadList={false}
               >
-                <Button type="outline" size="mini" icon={<IconUpload />} style={{ width: '100%' }}>
-                  上传文件
+                <Button
+                  type="outline"
+                  size="mini"
+                  icon={<IconUpload />}
+                  style={{ width: '100%' }}
+                  loading={isUploading}
+                >
+                  {isUploading ? `上传中 ${uploadProgress}%` : '上传文件'}
                 </Button>
               </Upload>
               <Upload
-                action="/api/scripts/archive"
-                headers={{ Authorization: `Bearer ${localStorage.getItem('token')}` }}
-                data={{ path: currentPath }}
-                accept=".zip,.tar,.tar.gz,.tgz"
-                onChange={(_, file) => {
-                  if (file.status === 'done') {
+                customRequest={async (option) => {
+                  const { file, onProgress, onSuccess, onError } = option;
+                  const formData = new FormData();
+                  formData.append('file', file);
+                  if (currentPath) {
+                    formData.append('path', currentPath);
+                  }
+
+                  setIsArchiveUploading(true);
+                  setArchiveUploadProgress(0);
+
+                  try {
+                    const token = localStorage.getItem('token');
+                    await axios.post('/api/scripts/archive', formData, {
+                      headers: {
+                        Authorization: `Bearer ${token}`,
+                      },
+                      onUploadProgress: (progressEvent) => {
+                        const percent = progressEvent.total
+                          ? Math.round((progressEvent.loaded * 100) / progressEvent.total)
+                          : 0;
+                        setArchiveUploadProgress(percent);
+                        onProgress(percent);
+                      },
+                    });
+                    onSuccess();
                     Message.success('压缩包上传并解压成功');
                     loadFiles();
-                  } else if (file.status === 'error') {
+                  } catch (error) {
+                    onError();
                     Message.error('压缩包上传失败');
+                  } finally {
+                    setIsArchiveUploading(false);
+                    setArchiveUploadProgress(0);
                   }
                 }}
+                accept=".zip,.tar,.tar.gz,.tgz"
                 showUploadList={false}
               >
-                <Button type="primary" size="mini" icon={<IconUpload />} style={{ width: '100%' }}>
-                  上传压缩包
+                <Button
+                  type="primary"
+                  size="mini"
+                  icon={<IconUpload />}
+                  style={{ width: '100%' }}
+                  loading={isArchiveUploading}
+                >
+                  {isArchiveUploading ? `上传中 ${archiveUploadProgress}%` : '上传压缩包'}
                 </Button>
               </Upload>
             </Space>

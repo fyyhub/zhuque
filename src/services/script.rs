@@ -183,6 +183,10 @@ impl ScriptService {
     }
 
     pub async fn write(&self, path: &str, content: &str) -> Result<()> {
+        self.write_bytes(path, content.as_bytes()).await
+    }
+
+    pub async fn write_bytes(&self, path: &str, content: &[u8]) -> Result<()> {
         self.validate_path(path)?;
         let full_path = self.base_path.join(path);
 
