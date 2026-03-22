@@ -269,7 +269,8 @@ pub async fn subscribe_execution_logs(
     let sse_stream = async_stream::stream! {
         // 先发送任务开始时间
         if let Some(info) = execution_info {
-            let start_time = info.started_at.format("%Y-%m-%d %H:%M:%S").to_string();
+            let local_time = info.started_at.with_timezone(&chrono::Local);
+            let start_time = local_time.format("%Y-%m-%d %H:%M:%S").to_string();
             yield Ok(Event::default().data(format!("[任务开始时间: {}]", start_time)));
         }
 
