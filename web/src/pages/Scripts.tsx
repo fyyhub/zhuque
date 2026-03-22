@@ -828,10 +828,11 @@ const Scripts: React.FC = () => {
                 customRequest={async (option) => {
                   const { file, onProgress, onSuccess, onError } = option;
                   const formData = new FormData();
-                  formData.append('file', file);
+                  // 先添加 path 字段，后端会按顺序读取
                   if (currentPath) {
                     formData.append('path', currentPath);
                   }
+                  formData.append('file', file);
 
                   setIsUploading(true);
                   setUploadProgress(0);
@@ -877,10 +878,11 @@ const Scripts: React.FC = () => {
                 customRequest={async (option) => {
                   const { file, onProgress, onSuccess, onError } = option;
                   const formData = new FormData();
-                  formData.append('file', file);
+                  // 先添加 path 字段，后端会按顺序读取
                   if (currentPath) {
                     formData.append('path', currentPath);
                   }
+                  formData.append('file', file);
 
                   setIsArchiveUploading(true);
                   setArchiveUploadProgress(0);
