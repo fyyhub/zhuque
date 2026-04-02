@@ -185,7 +185,11 @@ const Scripts: React.FC = () => {
       const res = await axios.get(`/api/scripts/${file.path}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setFileContent(res.data);
+      // 如果返回的是对象（JSON文件），转换为字符串
+      const content = typeof res.data === 'object'
+        ? JSON.stringify(res.data, null, 2)
+        : res.data;
+      setFileContent(content);
     } catch (error: any) {
       Message.error('读取文件失败');
     } finally {
