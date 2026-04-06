@@ -90,9 +90,8 @@ const Scripts: React.FC = () => {
         params: { path: currentPath },
       });
 
-      // 后端已经返回当前目录的直接子项，过滤掉隐藏文件（以.开头的文件/文件夹）
+      // 后端已经返回当前目录的直接子项
       const items: ScriptFile[] = res.data
-        .filter((file: any) => !file.name.startsWith('.'))
         .map((file: any) => ({
           ...file,
           isDirectory: file.is_directory,
@@ -292,7 +291,6 @@ const Scripts: React.FC = () => {
       });
 
       const items: ScriptFile[] = res.data
-        .filter((file: any) => !file.name.startsWith('.'))
         .map((file: any) => ({
           ...file,
           isDirectory: file.is_directory,
