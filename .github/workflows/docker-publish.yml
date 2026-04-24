@@ -1,61 +1,171 @@
-# .github/workflows/publish-ghcr.yml
 name: Build and Push to GHCR
- 
+
 on:
   workflow_dispatch:
   push:
-    branches: [ "main" ] # 仅在 main 分支有 push 时触发
+    branches: ["main"]
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/zhuque
 
 jobs:
-  build-and-push:
+  metadata:
     runs-on: ubuntu-latest
-    # 需要权限来读取仓库内容和写入 GitHub Packages (GHCR)
     permissions:
       contents: read
       packages: write
-
+    outputs:
+      tags: ${{ steps.meta.outputs.tags }}
+      labels: ${{ steps.meta.outputs.labels }}
+      json: ${{ steps.meta.outputs.json }}
     steps:
-      # 检出代码
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # 设置 Docker Buildx
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      # 登录到 GitHub Container Registry
-      # 使用自动生成的 GITHUB_TOKEN 进行认证，无需手动设置 Secrets
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }} # 使用触发工作流的 GitHub 用户名
-          password: ${{ secrets.GITHUB_TOKEN }} # 使用 GitHub 自动生成的 Token
-
-      # (推荐) 使用 docker/metadata-action 自动生成镜像标签和元数据
-      # 这会根据 Git 事件（如分支名、标签、SHA）创建合适的镜像标签
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/zhuque # 修改为你想要的镜像名
+          images: ${{ env.IMAGE_NAME }}
           tags: |
-            # 为最新的 commit 生成 sha- 开头的标签 (例如 sha-a1b2c3d)
             type=sha,prefix=sha-
-            # 如果是 main 分支，添加 latest 标签
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            # 如果创建了 Git tag (例如 v1.0.0), 则使用该 tag 作为镜像标签
             type=ref,event=tag
 
-      # 构建并推送 Docker 镜像
-      - name: Build and push Docker image
+  build-amd64:
+    runs-on: ubuntu-latest
+    needs: metadata
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push amd64 image by digest
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
-          push: true # 设置为 true，表示构建并推送
-          tags: ${{ steps.meta.outputs.tags }} # 使用 metadata-action 生成的标签
-          labels: ${{ steps.meta.outputs.labels }} # 使用 metadata-action 生成的标签
-          # 启用 GitHub Actions 缓存加速构建
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+          push: true
+          labels: ${{ needs.metadata.outputs.labels }}
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=build-amd64
+          cache-to: type=gha,mode=max,scope=build-amd64
+
+      - name: Prepare amd64 digest file
+        shell: bash
+        run: |
+          mkdir -p "${RUNNER_TEMP}/digests"
+          touch "${RUNNER_TEMP}/digests/${DIGEST#sha256:}"
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+
+      - name: Export amd64 digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-amd64
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+
+  build-arm64:
+    runs-on: ubuntu-24.04-arm
+    needs: metadata
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push arm64 image by digest
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/arm64
+          push: true
+          labels: ${{ needs.metadata.outputs.labels }}
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=build-arm64
+          cache-to: type=gha,mode=max,scope=build-arm64
+
+      - name: Prepare arm64 digest file
+        shell: bash
+        run: |
+          mkdir -p "${RUNNER_TEMP}/digests"
+          touch "${RUNNER_TEMP}/digests/${DIGEST#sha256:}"
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+
+      - name: Export arm64 digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-arm64
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+
+  merge-manifest:
+    runs-on: ubuntu-latest
+    needs:
+      - metadata
+      - build-amd64
+      - build-arm64
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create multi-arch manifest
+        shell: bash
+        run: |
+          TAG_ARGS=()
+          while IFS= read -r tag; do
+            TAG_ARGS+=("-t" "$tag")
+          done <<< "$TAGS"
+
+          DIGEST_REFS=()
+          for file in "${RUNNER_TEMP}"/digests/*; do
+            DIGEST_REFS+=("${IMAGE_NAME}@sha256:$(basename "$file")")
+          done
+
+          docker buildx imagetools create "${TAG_ARGS[@]}" "${DIGEST_REFS[@]}"
+        env:
+          TAGS: ${{ needs.metadata.outputs.tags }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
